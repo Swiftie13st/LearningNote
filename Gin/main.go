@@ -1,20 +1,36 @@
 package main
 
-import "github.com/gin-gonic/gin"
 import (
-    "net/http"
+	"Gin/functions"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
-    r := gin.Default()
-    r.GET("/", func(c *gin.Context) {
-        c.String(200, "Hello World!")
-    })
+	// 创建一个默认的路由引擎
+	r := gin.Default()
 
-    r.GET("/user/:name", func(c *gin.Context) {
-        name := c.Param("name")
-        c.String(http.StatusOK, "Hello %s", name)
-    })
+	r.GET("/", func(c *gin.Context) {
+		c.String(200, "Hello World!")
+	})
 
-    r.Run(":9003") // listen and serve on 0.0.0.0:PORT(default:8080)
+	// GET：请求方式；/hello：请求的路径
+	// 当客户端以GET方法请求/hello路径时，会执行后面的匿名函数
+	r.GET("/hello", func(c *gin.Context) {
+		// c.JSON：返回JSON格式的数据
+		c.JSON(200, gin.H{
+			"message": "Hello world!",
+		})
+	})
+
+	r.GET("/user/:name", func(c *gin.Context) {
+		name := c.Param("name")
+		c.String(http.StatusOK, "Hello %s", name)
+	})
+
+	functions.Book(r)
+
+	r.Run(":9003") // listen and serve on 0.0.0.0:PORT(default:8080)
+
 }
