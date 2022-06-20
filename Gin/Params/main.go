@@ -1,7 +1,7 @@
 package main
 
 import (
-	"Gin/functions"
+	"Gin/Params/functions"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
