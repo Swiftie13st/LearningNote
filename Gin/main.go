@@ -45,6 +45,8 @@ func main() {
 		})
 	})
 
+	functions.Params(r)
+
 	r.Run(":9003") // listen and serve on 0.0.0.0:PORT(default:8080)
 
 }
