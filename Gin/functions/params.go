@@ -7,6 +7,16 @@ import (
 )
 
 func Params(r *gin.Engine) {
+
+	// GET：请求方式；/hello：请求的路径
+	// 当客户端以GET方法请求/hello路径时，会执行后面的匿名函数
+	r.GET("/hello", func(c *gin.Context) {
+		// c.JSON：返回JSON格式的数据
+		c.JSON(200, gin.H{
+			"message": "Hello world!",
+		})
+	})
+
 	// 匹配users?name=xxx&role=xxx，role可选
 	r.GET("/users", func(c *gin.Context) {
 		name := c.Query("name")
@@ -28,6 +38,7 @@ func Params(r *gin.Engine) {
 			"password": password,
 		})
 	})
+
 	// 获取path参数
 	r.GET("/path/:username/:address", func(c *gin.Context) {
 		username := c.Param("username")
@@ -39,6 +50,7 @@ func Params(r *gin.Engine) {
 			"address":  address,
 		})
 	})
+
 	// 获取Map参数
 	r.POST("/mappost", func(c *gin.Context) {
 		ids := c.QueryMap("ids")
