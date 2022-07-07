@@ -23,15 +23,28 @@ func getInput() string {
 
 // tcp client
 func main() {
-	// 与server端建立连接
-	conn, err := net.Dial("tcp", "127.0.0.1:20000")
+	// // 与server端建立连接
+	// conn, err := net.Dial("tcp", "127.0.0.1:20000")
+	// if err != nil {
+	// 	fmt.Println("dial 127.0.0.1:20000 failed, err：", err)
+	// 	return
+	// }
+	// // 发送数据
+	// conn.Write([]byte(getInput()))
+
+	// // 关闭流
+	// defer conn.Close()
+
+	conn, err := net.Dial("tcp", "127.0.0.1:30000")
 	if err != nil {
-		fmt.Println("dial 127.0.0.1:20000 failed, err：", err)
+		fmt.Println("dial failed, err", err)
 		return
 	}
-	// 发送数据
-	conn.Write([]byte(getInput()))
-
-	// 关闭流
 	defer conn.Close()
+
+	// 连续发送20次的hello到服务器
+	for i := 0; i < 20; i++ {
+		msg := `Hello, Hello. How are you?`
+		conn.Write([]byte(msg))
+	}
 }
