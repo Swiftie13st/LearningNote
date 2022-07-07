@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+
+	"goProject/tcp/server/proto"
 )
 
 func getInput() string {
@@ -35,16 +37,31 @@ func main() {
 	// // 关闭流
 	// defer conn.Close()
 
+	// conn, err := net.Dial("tcp", "127.0.0.1:30000")
+	// if err != nil {
+	// 	fmt.Println("dial failed, err", err)
+	// 	return
+	// }
+	// defer conn.Close()
+
+	// // 连续发送20次的hello到服务器
+	// for i := 0; i < 20; i++ {
+	// 	msg := `Hello, Hello. How are you?`
+	// 	conn.Write([]byte(msg))
+	// }
 	conn, err := net.Dial("tcp", "127.0.0.1:30000")
 	if err != nil {
 		fmt.Println("dial failed, err", err)
 		return
 	}
 	defer conn.Close()
-
-	// 连续发送20次的hello到服务器
 	for i := 0; i < 20; i++ {
 		msg := `Hello, Hello. How are you?`
-		conn.Write([]byte(msg))
+		data, err := proto.Encode(msg)
+		if err != nil {
+			fmt.Println("encode msg failed, err:", err)
+			return
+		}
+		conn.Write(data)
 	}
 }

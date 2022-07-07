@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+
+	"goProject/tcp/server/proto"
 )
 
 // 用于接收请求的方法
@@ -22,7 +24,7 @@ func processConn(conn net.Conn) {
 	}
 }
 
-func process(conn net.Conn) {
+func process_ori(conn net.Conn) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
 	var buf [1024]byte
@@ -37,6 +39,24 @@ func process(conn net.Conn) {
 		}
 		recvStr := string(buf[:n])
 		fmt.Println("收到client发来的数据：", recvStr)
+	}
+}
+
+func process(conn net.Conn) {
+	defer conn.Close()
+	reader := bufio.NewReader(conn)
+	for {
+
+		// msg, err := proto.Decode(reader)
+		msg, err := proto.Decode(reader)
+		if err == io.EOF {
+			return
+		}
+		if err != nil {
+			fmt.Println("decode msg failed, err:", err)
+			return
+		}
+		fmt.Println("收到client发来的数据：", msg)
 	}
 }
 
