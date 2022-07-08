@@ -11,7 +11,7 @@ import (
 )
 
 // 往终端写日志相关内容
-1
+
 type LogLevel uint16
 
 // 定义日志级别
