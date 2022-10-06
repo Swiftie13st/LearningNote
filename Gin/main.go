@@ -17,7 +17,7 @@ type login struct {
 
 var identityKey = "id"
 
-//jwt中payload的数据
+// User jwt中payload的数据
 type User struct {
 	UserName  string
 	FirstName string
@@ -108,7 +108,7 @@ func Authenticator(c *gin.Context) (interface{}, error) {
 	return nil, jwt.ErrFailedAuthentication
 }
 
-//处理/hellow路由的控制器
+//处理/hello路由的控制器
 func helloHandler(c *gin.Context) {
 	claims := jwt.ExtractClaims(c)
 	user, _ := c.Get(identityKey)
