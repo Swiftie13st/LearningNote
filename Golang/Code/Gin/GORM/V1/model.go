@@ -1,4 +1,4 @@
-package main
+package V1
 
 // 导入mysql驱动
 import (
@@ -56,5 +56,29 @@ func main() {
 		return
 	}
 	fmt.Println("connect mysql success")
+
+	// 禁用表名的负数形式【默认会在表名后面加s】
+	db.SingularTable(false)
+
+	// 自动迁移【把结构体和数据表进行对应】
+	db.AutoMigrate(&User{})
+	db.AutoMigrate(&Animal{})
+	// 创建记录
+	//u1 := User{
+	//	Name: "Bruce",
+	//}
+	//
+	//db.Create(&u1)
+	//
+	//// 查询数据
+	//var u User
+	//db.First(&u)
+	//fmt.Printf("u: %#v \n", u)
+	//
+	//// 更新
+	//db.Model(&u).Update("hobby", "双色球")
+	//
+	//// 删除
+	//db.Delete(&u)
 
 }
