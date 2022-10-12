@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
+	"time"
 )
 
 func main() {
@@ -36,21 +36,26 @@ func main() {
 		Name string
 	}
 
-	//自动迁移
-	_ = db.AutoMigrate(&User{})
+	sqlDB, _ := db.DB()
+	sqlDB.SetMaxIdleConns(10)           // 连接池中最大的空闲连接数
+	sqlDB.SetMaxOpenConns(100)          // 连接池最多容纳的连接数量
+	sqlDB.SetConnMaxLifetime(time.Hour) // 连接池中连接可复用的最大时间
+
+	////自动迁移
+	//_ = db.AutoMigrate(&User{})
 
 	// 手动迁移
 	M := db.Migrator()
-
-	// 手动创建表
-	_ = M.CreateTable(&User{})
-	
-	// 是否存在表
-	fmt.Println(M.HasTable(&User{}))
-	fmt.Println(M.HasTable("t_users")) // 可以以表名来查
-
-	// 删除表
-	fmt.Println(M.DropTable(&User{})) // 返回<nil>删除成功
+	//
+	//// 手动创建表
+	//_ = M.CreateTable(&User{})
+	//
+	//// 是否存在表
+	//fmt.Println(M.HasTable(&User{}))
+	//fmt.Println(M.HasTable("t_users")) // 可以以表名来查
+	//
+	//// 删除表
+	//fmt.Println(M.DropTable(&User{})) // 返回<nil>删除成功
 
 	// 重命名表
 	if (M.HasTable(&User{})) {
