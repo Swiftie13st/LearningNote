@@ -1,0 +1,43 @@
+syntax = "proto3";  // 告诉编译器用`proto3`来解读
+
+package person;
+
+option go_package = "grpc/pb/person;person";
+
+import "home/home.proto";
+
+message Person{
+  string name = 1;
+  int32 age = 2;
+
+  enum SEX{
+    option allow_alias = true;
+
+    MALE = 0; // 枚举类型必须有0值
+    FEMALE = 1;
+    GIRL = 1;
+    OTHER = 2;
+  }
+
+  SEX sex = 3;
+
+  oneof TestOneOf{
+    string one = 6;
+    string two = 7;
+    string three = 8;
+  }
+
+
+  home.Home i_home = 9;
+
+  reserved "test_map", "test"; // 保留字
+  reserved 5; //保留标识
+}
+
+
+service SearchService {
+  rpc Search(Person) returns (Person); // 传统的 即刻响应的
+  rpc SearchI(stream Person) returns (Person); // 入参为流
+  rpc SearchO(stream Person) returns (stream Person); // 出参为流
+  rpc SearchIO(stream Person) returns (stream Person); // 出入均为流
+}
