@@ -1,0 +1,23 @@
+syntax = "proto3";  // 告诉编译器用`proto3`来解读
+
+package person;
+
+option go_package = "grpc/pb/person;person";
+
+message PersonReq{
+  string name = 1;
+  int32 age = 2;
+
+}
+message PersonRes{
+  string name = 1;
+  int32 age = 2;
+
+}
+
+service SearchService {
+  rpc Search(PersonReq) returns (PersonRes); // 传统的 即刻响应的
+  rpc SearchI(stream PersonReq) returns (PersonRes); // 入参为流
+  rpc SearchO(PersonReq) returns (stream PersonRes); // 出参为流
+  rpc SearchIO(stream PersonReq) returns (stream PersonRes); // 出入均为流
+}
