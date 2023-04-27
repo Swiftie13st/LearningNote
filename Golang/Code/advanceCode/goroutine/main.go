@@ -2,24 +2,33 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"sync"
 )
 
-var wg sync.WaitGroup
-
-func hello(i int) {
-	// fmt.Println("Hello Goroutine!")
-	defer wg.Done() // goroutine结束就登记-1
-	fmt.Println("Hello Goroutine!", i)
-}
 func main() {
+	var smp sync.Map
 
-	// go hello() // 启动另外一个goroutine去执行hello函数
-	// fmt.Println("main goroutine done!")
-	// time.Sleep(time.Second)
-	for i := 0; i < 10; i++ {
-		wg.Add(1) // 启动一个goroutine就登记+1
-		go hello(i)
+	smp.Store("k1", "v1")
+	smp.Store("k2", "v2")
+	smp.Store("k3", "v3")
+
+	for i := 0; i < 10000; i++ {
+		smp.Store("k"+strconv.Itoa(i), "v"+strconv.Itoa(i))
 	}
-	wg.Wait() // 等待所有登记的goroutine都结束
+
+	smp.Delete("k3")
+
+	v, ok := smp.Load("k1")
+	if !ok {
+		fmt.Println("key not found")
+	}
+
+	fmt.Println(v.(string))
+
+	smp.Range(func(k, v any) bool {
+		fmt.Println(v.(string))
+		return true
+	})
+
 }
