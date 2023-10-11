@@ -877,28 +877,77 @@ redis在遇到内存使用完成之后利用淘汰机制，将数据放到磁盘
 
 如果是整型/长整型，Redis会使用int类型（8字节）存储来代替字符串，可以节省更多空间。因此在可以使用长整型/整型代替字符串的场景下，尽量使用长整型/整型
 
-## 时间复杂度
+##  redis网络传输报文格式是什么？ 
 
-### Zset
+Redis客户端和服务端交互是通过tcp协议，在通讯的报文格式使用的是RESP协议规范，也就是意味只要和Redis服务端建立Scoket连接，通过RESP报文格式传输数据就可以实现Redis客户端和服务端的交互。看起来是很简单的，但是实际上的确是这么简单，RESP报文格式的可读性也是很高的。
 
-熟知的zset底层结构为跳表，跳表是以score进行排序的，那么是怎么做到zrank的时间复杂度为O(logn)呢？我们并不知道这个元素的分数，自然也就没办法利用跳表的顺序属性。
-原因是zset底层不单单是跳表，同时还有字典的实现，也就是hash表，我们可以通过元素在O(1)的时间内找到元素的分数，进而去跳表中找到对应元素的排名。
-而且虽然维护了两个数据结构，但是两者引用的都是同一块内存地址，所以并没有额外的空间开销。
+RESP是Redis通讯的协议规范，有以下几种特点：
 
-时间复杂度：O.（M log（N）），N是有序集的基数，M为成功添加的新成员的数量。  
-集合内命令  
-`zadd key score element` 向有序集合中添加score和element 时间复杂度 o(logN)  
-`zscore key element` 获取element的分数 时间复杂度o(1)  
-`zincrby key increScore element` 自增element的分数 时间复杂度o(1)  
-`zcard key` 返回有序集合中元素的个数 时间复杂度o(1)  
-`zrank key element` 获取元素排名，下标从0开始  
-`ZREVRANK key member` 获取元素排名，倒叙  
-`zrange key start end [withscores]` 查询有序集合成指定排名区间内的成员，下标从0开始 时间复杂度o(log(n)+m)  
-`zrevrange key start stop [withscores]` 查询有序集合成指定排名区间内的成员，倒叙，下标从0开始  
-`zrangebyscore key minScore maxScore [withscores]` 查询有序集合指定分数区间内的成员 时间复杂度o(log(n)+m)
-`zrevrangebyscore key maxScore minScore [withscores]` 查询有序集合指定分数区间内的成员，倒叙  
-`zcount key minScore maxScore` 计算在有序集合中指定分数区间的成员数 时间复杂度o(log(n)+m)  
-`zrem key element` 删除有序集合中的element 时间复杂度o(1)  
-`zremrangebyrank key start end` 移除有序集合中给定的排名区间的所有成员,从0开始 时间复杂度o(log(n)+m)  
-`zremrangebyscore key minScore maxScore` 移除有序集合中给定的分数区间的所有成员 时间复杂度o(log(n)+m)
+- 简单的实现，人工也就可以写的出来
+- 快速的被计算机解析
+- 简单的可以被人工解析
+- 基于网络层，Redis在tcp端口6379（默认）上监听到来的连接（本质是Socket），客户端连接到来时，Redis服务器为此建立一个tcp连接。
+
+RESP中涉及到主要的两个符号，分别是`*`和`$`，其中`*`表示此报文里面有几个`$`符，准确的说是几组。`$`表示本组数据所占的字符数。
+
+```sh
+*3
+$3
+SET
+$3
+key
+$5
+joker
+```
+
+- 报文总共有三组`$`数据组成，所以开头的`*`标明的值是3
+- 第一组数据是`SET`，占用3个字符，所以`$`标明的值为3，下面的两组以此类推
+
+为了可阅读性上面写成是一列，但是实际上他们是组成一个字符串发送，需要注意的是，每一行都是独立的一行，需要在字符串中加入`\r\n`换行才行，压缩后如下：
+
+```shell
+*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\njoker\r\n
+```
+
+注意压缩成字符串后末尾也是需要`\r\n`的。（Redis的AOF持久化文件中也是这样保存的）
+
+###  有几种报文格式？ 
+
+Redis的[通信协议](https://so.csdn.net/so/search?q=%E9%80%9A%E4%BF%A1%E5%8D%8F%E8%AE%AE&spm=1001.2101.3001.7020)全称是 REdis Serialization Protocol(RESP)  
+它有5种通信格式
+#### 正常回复
+
+以"`+`“开头， 以”`\r\n`"结尾的字符串形式  
+
+```resp
++OK\r\n
+```
+#### 错误回复
+
+以"`-`“开头， 以”`\r\n`"结尾的字符串形式  
+
+```resp
+-Error message\r\n
+```
+
+##### 整数
+
+以"`:`“开头， 以”`\r\n`"结尾的字符串形式  
+
+```resp
+:123456\r\n
+```
+
+##### 多行字符串
+
+以"`$`“开头，后跟实际发送字节数， 以”`\r\n`"结尾的字符串形式  
+
+```resp
+// “test”  
+$4\r\n`test`\r\n
+// 空字符串  
+$0\r\n\r\n
+// 或者需要换行符"test1\r\ntest2"  
+$14\r\ntest1\r\ntest2\r\n
+```
 
