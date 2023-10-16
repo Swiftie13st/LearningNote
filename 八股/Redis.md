@@ -951,3 +951,327 @@ $0\r\n\r\n
 $14\r\ntest1\r\ntest2\r\n
 ```
 
+
+## 底层
+
+### string
+
+字符串对象的值实际可以是字符串、数字、甚至是二进制，最大不能超过512MB 
+
+字符串对象的编码可以是int，raw或者embstr。
+**int 编码是用来保存整数值，raw编码是用来保存长字符串，而embstr是用来保存短字符串**
+
+1. int 编码：保存的是可以用 long 类型表示的整数值。如果一个字符串对象保存的是整数值,并且这个整数值可以用`long`类型来表示,那么字符串对象会将整数值保存在字符串对象结构的`ptr`属性里面(将`void*`转换成`1ong`),并将字符串对象的编码设置为`int`。
+2. raw 编码：保存长度大于44字节的字符串（redis3.2版本之前是39字节，之后是44字节）。如果字符串对象保存的是一个字符串值,并且这个字符串值的长度大于32字节,那么字符串对象将使用一个简单动态字符串(SDS)来保存这个字符串值,并将对象的编码设置为`raw`。
+3. embstr 编码：保存长度小于44字节的字符串（redis3.2版本之前是39字节，之后是44字节）如果字符串对象保存的是一个字符串值,并且这个字符申值的长度小于等于32字节，那么字符串对象将使用一个简单动态字符串(SDS)来保存这个字符串值，并将对象的编码设置为`embstr`
+
+当 int 编码保存的值不再是整数，或大小超过了long的范围时，自动转化为raw。对于 embstr 编码，由于 Redis 没有对其编写任何的修改程序（embstr 是只读的），在对embstr对象进行修改时，都会先转化为raw再进行修改，因此，只要是修改embstr对象，修改后的对象一定是raw的，无论是否达到了44个字节。
+
+![Pasted image 20230918000826](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202310161701437.png)
+
+embstr与raw都使用redisObject和sds保存数1据，区别在于，embstr的使用只分配一次内存空间（因此redisObject和sds是连续的），而raw需要分配两次内存空间（分别为redisObject和sds分配空间）。
+
+因此与raw相比，embstr的好处在于创建时少分配一次空间，删除时少释放一次空间，以及对象的所有数据连在一起，寻找方便。
+
+而embstr的坏处也很明显，如果字符串的长度增加需要重新分配内存时，整个redisObject和sds都需要重新分配空间，因此redis中的embstr实现为只读
+
+
+#### 命令
+
+|命令|`int` 编码的实现方法|`embstr` 编码的实现方法|`raw` 编码的实现方法|
+|---|---|---|---|
+|SET|使用 `int` 编码保存值。|使用 `embstr` 编码保存值。|使用 `raw` 编码保存值。|
+|GET|拷贝对象所保存的整数值， 将这个拷贝转换成字符串值， 然后向客户端返回这个字符串值。|直接向客户端返回字符串值。|直接向客户端返回字符串值。|
+|APPEND|将对象转换成 `raw` 编码， 然后按`raw` 编码的方式执行此操作。|将对象转换成 `raw` 编码， 然后按`raw` 编码的方式执行此操作。|调用 `sdscatlen` 函数， 将给定字符串追加到现有字符串的末尾。|
+|INCRBYFLOAT|取出整数值并将其转换成 `longdouble` 类型的浮点数， 对这个浮点数进行加法计算， 然后将得出的浮点数结果保存起来。|取出字符串值并尝试将其转换成`long double` 类型的浮点数， 对这个浮点数进行加法计算， 然后将得出的浮点数结果保存起来。 如果字符串值不能被转换成浮点数， 那么向客户端返回一个错误。|取出字符串值并尝试将其转换成 `longdouble` 类型的浮点数， 对这个浮点数进行加法计算， 然后将得出的浮点数结果保存起来。 如果字符串值不能被转换成浮点数， 那么向客户端返回一个错误。|
+|INCRBY|对整数值进行加法计算， 得出的计算结果会作为整数被保存起来。|`embstr` 编码不能执行此命令， 向客户端返回一个错误。|`raw` 编码不能执行此命令， 向客户端返回一个错误。|
+|DECRBY|对整数值进行减法计算， 得出的计算结果会作为整数被保存起来。|`embstr` 编码不能执行此命令， 向客户端返回一个错误。|`raw` 编码不能执行此命令， 向客户端返回一个错误。|
+|STRLEN|拷贝对象所保存的整数值， 将这个拷贝转换成字符串值， 计算并返回这个字符串值的长度。|调用 `sdslen` 函数， 返回字符串的长度。|调用 `sdslen` 函数， 返回字符串的长度。|
+|SETRANGE|将对象转换成 `raw` 编码， 然后按`raw` 编码的方式执行此命令。|将对象转换成 `raw` 编码， 然后按`raw` 编码的方式执行此命令。|将字符串特定索引上的值设置为给定的字符。|
+|GETRANGE|拷贝对象所保存的整数值， 将这个拷贝转换成字符串值， 然后取出并返回字符串指定索引上的字符。|直接取出并返回字符串指定索引上的字符。|直接取出并返回字符串指定索引上的字符。|
+### list
+
+列表（list）类型是用来存储多个有序的字符串，列表中的每个字符串称为元素(element)，一个列表最多可以存储232-1个元素。
+在Redis中，可以对列表两端插入（push）和弹出（pop），还可以获取指定范围的元素列表、获取指定索引下标的元素等。
+
+列表是一种比较灵活的数据结构，它可以充当栈和队列的角色，在实际开发上有很多应用场景。
+
+列表类型有两个特点：
+
+1. 列表中的元素是==有序的==，这就意味着可以通过索引下标获取某个元素或者某个范围内的元素列表。
+2. 列表中的元素==可以是重复的==.
+
+底层：
+
+- `ziplist（压缩列表）`：当列表的元素个数小于list-max-ziplist-entries配置（默认512个），同时列表中每个元素的值都小于list-max-ziplist-value配置时（默认64字节），Redis会选用ziplist来作为列表的内部实现来减少内存的使用。
+- `linkedlist（双端链表）`：当列表类型无法满足ziplist的条件时，Redis会使用linkedlist作为列表的内部实现。
+
+当同时满足下面两个条件时，使用ziplist（压缩列表）编码：
+
+1. 列表保存元素个数小于512个
+2. 每个元素长度小于64字节
+
+不能满足这两个条件的时候使用 linkedlist 编码
+而在Redis3.2版本开始对列表数据结构进行了改造，==使用 quicklist 代替了 ziplist 和 linkedlist.==
+
+#### ziplist :
+
+它有点儿类似数组，通过一片连续的内存空间，来存储数据。不过，它跟数组不同的一点是，它==允许存储的数据大小不同==。
+
+![Pasted image 20230918001138](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202310161701438.png)
+
+`zlbytes`：记录整个压缩列表占用的内存字节数。1unit32_t-4byte  
+`zltail`：记录压缩列表表尾节点距离压缩列表起始地址有多少字节。unit32_t-4byte  
+`zllen`：记录了压缩列表包含的节点数量。值小于unit16_max(65535)时，表示包含节点数量，等于时，需要遍历整个压缩列表才能计算得出 unit16_t-2byte  
+`entryN`：压缩列表的节点，节点长度由节点保存的内容决定。  
+`zlend`：特殊值0xFF（十进制255），用于标记压缩列表的末端。 unit8_t-1byte
+
+entryN-压缩列表节点结构:
+![Pasted image 20230918001150](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202310161701439.png)
+
+```cpp
+typedef struct zlentry {
+    unsigned int prevrawlensize;     //previous_entry_length字段长度
+    unsigned int prevrawlen;         //previous_entry_length字段存储的内容
+    unsigned int lensize;            //encod1ing字段的长度
+    unsigned char encoding;          //数据类型
+    unsigned int len;                //数据内容长度
+    unsigned int headersize;         //当前元素的首部长度 = previous_entry_length字段长度与encoding字段长度之和
+    unsigned char *p;                //当前元素首地址   
+} zlentry;
+```
+
+- `previous_entry_length`：记录压缩列表中前一个节点的长度。previous_entry_length属性的长度可以是1字节或者5字节：如果前一节点的长度小于 254 字节，那么previous_entry_length属性的长度为1字节，前一节点的长度就保存在这一个字节里面。如果前一节点的长度大于等于254字节，那么previous_entry_length属性的长度为5字节，其中属性的第一字节会被设置为0xFE（十进制值 254），而之后的四个字节则用于保存前一节点的长度。因为节点的previous_entry_length属性记录了前一个节点的长度，所以程序可以通过指针运算，根据当前节点的起始地址来计算出前一个节点的起始地址，缩列表的从表尾向表头遍历操作就是使用这一原理实现的。
+- `encoding`：记录节点的contents属性所保存数据的类型以及长度。分两种情况：
+	- 一字节、两字节或者五字节长，值的最高位为00 、01或者10的是字节数组编码，这种编码表示节点的content属性保存着字节数组，数组的长度由编码除去最高两位之后的其他位记录；
+	- 一字节长，值的最高位以11开头的是整数编码，这种编码表示节点的content属性保存着整数值，整数值的类型和长度由编码除去最高两位之后的其他位记录。
+- `contents`：保存节点的值，可以是一个字节数组或整数，类型和长度由节点的'encoding'属性决定。
+
+
+#### linklist :
+
+![Pasted image 20230918001202](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202310161701440.png)
+
+![Pasted image 20230918001211](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202310161701441.png)
+
+```cpp
+typedef struct list {
+    listNode *head;  // 表头指针
+    listNode *tail;     // 表尾指针 
+    unsigned long len;   // 节点数量
+    void *(*dup)(void *ptr);  // 复制函数
+    void (*free)(void *ptr);  // 释放函数
+    int (*match)(void *ptr, void *key);  // 比对函数
+} list;
+
+typedef struct listNode {
+    struct listNode *prev;  // 前驱节点
+    struct listNode *next;   // 后继节点 
+    void *value;  // 值
+} listNode;
+```
+
+#### 快速列表quicklist
+
+quicklist 实际上是 zipList 和 linkedList 的混合体，它将 linkedList 按段切分，每一段使用 zipList 来紧凑存储，多个 zipList 之间使用双向指针串接起来。
+![Pasted image 20230918001225](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202310161701442.png)
+#### 命令
+
+|命令|说明|时间复杂度|
+|---|---|---|
+|BLPOP key \[key ...\] timeout|删除，并获得该列表中的第一元素，或阻塞，直到有一个可用|O(1)|
+|BRPOP key \[key ...\] timeout|删除，并获得该列表中的最后一个元素，或阻塞，直到有一个可用|O(1)|
+|BRPOPLPUSH source destination timeout|弹出一个列表的值，将它推到另一个列表，并返回它;或阻塞，直到有一个可用|O(1)|
+|LINDEX key index|获取一个元素，通过其索引列表|O(N)|
+|LINSERT key BEFORE|AFTER pivot value在列表中的另一个元素之前或之后插入一个元素|O(N)|
+|LLEN key|获得队列(List)的长度|O(1)|
+|LPOP key|从队列的左边出队一个元素|O(1)|
+|LPUSH key value \[value ...\]|从队列的左边入队一个或多个元素|O(1)|
+|LPUSHX key value|当队列存在时，从队到左边入队一个元素|O(1)|
+|LRANGE key start stop|从列表中获取指定返回的元素|O(S+N)|
+|LREM key count value|从列表中删除元素|O(N)|
+|LSET key index value|设置队列里面一个元素的值|O(N)|
+|LTRIM key start stop|修剪到指定范围内的清单|O(N)|
+|RPOP key|从队列的右边出队一个元|O(1)|
+|RPOPLPUSH source destination|删除列表中的最后一个元素，将其追加到另一个列表|O(1)|
+|RPUSH key value \[value ...\]|从队列的右边入队一个元素|O(1)|
+|RPUSHX key value|从队列的右边入队一个元素，仅队列存在时有效|O(1)|
+
+### set
+
+Redis 的 Set 是 String 类型的无序集合。集合成员是唯一的，这就意味着集合中不能出现重复的数据。
+
+集合类型的内部编码有两种：
+- intset(整数集合):当集合中的元素都是整数且元素个数小于set-maxintset-entries配置（默认512个）时，Redis会选用intset来作为集合的内部实现，从而减少内存的使用。
+- hashtable(哈希表):当集合类型无法满足intset的条件时，Redis会使用hashtable作为集合的内部实现。
+
+集合的主要几个特性，无序、不可重复、支持并交差等操作。因此集合类型比较适合用来数据去重和保障数据的唯一性，还可以用来统计多个集合的交集、错集和并集等，当我们存储的数据是无序并且需要去重的情况下，比较适合使用集合类型进行存储。
+#### intset
+
+创建一个intset编码的集合对象所有元素都被直接包含在一个整数集合里
+
+![Pasted image 20230918001235](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202310161701443.png)
+
+contents数组是整数集合的底层实现：整数集合的每个元素都是contents数组的一个数组项（item），各个项在数组中按值的大小从小到大有序地排列，并且数组中不包含任何重复项。
+
+向整数集合中添加新元素的时间复杂度为O(N);
+
+#### hashtable
+
+当传入字符时，变为hashtable编码，hashtable编码的集合对象底层由字典实现。字典的键就是集合的内容，值为null。
+
+![Pasted image 20230918001246](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202310161701444.png)![Pasted image 20230918001303](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202310161701445.png)
+![Pasted image 20230918001313](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202310161701446.png)
+#### 命令
+
+|命令|说明|时间复杂度|
+|---|---|---|
+|SADD key member \[member ...]|添加一个或者多个元素到集合(set)里|O(N)|
+|SCARD key|获取集合里面的元素数量|O(1)|
+|SDIFF key \[key ...]|获得队列不存在的元素|O(N)|
+|SDIFFSTORE destination key \[key ...]|获得队列不存在的元素，并存储在一个关键的结果集|O(N)|
+|SINTER key \[key ...]|获得两个集合的交集|O(N\*M)|
+|SINTERSTORE destination key \[key ...]|获得两个集合的交集，并存储在一个关键的结果集|O(N\*M)|
+|SISMEMBER key member|确定一个给定的值是一个集合的成员|O(1)|
+|SMEMBERS key|获取集合里面的所有元素|O(N)|
+|SMOVE source destination member|移动集合里面的一个元素到另一个集合|O(1)|
+|SPOP key \[count]|删除并获取一个集合里面的元素|O(1)|
+|SRANDMEMBER key \[count]|从集合里面随机获取一个元素||
+|SREM key member \[member ...]|从集合里删除一个或多个元素|O(N)|
+|SUNION key \[key ...]|添加多个set元素|O(N)|
+|SUNIONSTORE destination key \[key ...]|合并set元素，并将结果存入新的set里面|O(N)|
+|SSCAN key cursor \[MATCH pattern] \[COUNT count]|迭代set里面的元素|O(1)|
+
+#### 为什么要维护两个hash表？为了扩容
+
+redis字典为了控制创建的hash表的空间开销，redis会动态调整hash表的空间大小，当ht\[0]的长度满了，这里的ht\[0]满了并不是指dictEntry数组里面每一个元素都存储了一个dictEntry，而是dictht的used和size相同，可能有部分dictEntry会发生散列冲突的。此时再向字典添加元素，此时redis字典就会进行扩容。
+
+首先对ht\[1]进行扩容，扩容的大小为比当前当前容量大的2的n次方，目标大小必须为2的n次方，这样系统进行内存分配的效率才有保证，
+
+比如当前容量ht\[0]的容量为4，那么扩容的大小就应该为2的3次方也就是8.再将ht\[0]的内容迁移到ht\[1]此时redis字典的结构如下
+![Pasted image 20230918001333](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202310161701447.png)
+这样就可以减少hash表的内存占用，不够的时候就扩容hash表。
+
+这种方法虽然节约了内存，但如果hash表已经很长了的时候，此时再扩容它的内存再分配的规模可能就会很大，造成性能影响。
+
+因此，为了避免rehash对服务器性能造成影响，服务器不是一次性将ht\[0]里面的所有键值对全部rehash到ht\[1]，而是分多次、渐进式地将ht\[0]里面的键值对慢慢地rehash到ht\[1]。
+
+以下是哈希表渐进式rehash的详细步骤：
+
+1）为ht\[1]分配空间，让字典同时持有ht\[0]和ht\[1]两个哈希表。  
+2）在字典中维持一个索引计数器变量rehashidx，并将它的值设置为0，表示rehash工作正式开始。  
+3）在rehash进行期间，每次对字典执行添加、删除、查找或者更新操作时，程序除了执行指定的操作以外，还会顺带将ht\[0]哈希表在rehashidx索引上的所有键值对rehash到ht\[1]，当rehash工作完成之后，程序将rehashidx属性的加一。  
+4）随着字典操作的不断执行，最终在某个时间点上，ht\[0]的所有键值对都会被rehash至ht\[1]，这时程序将rehashidx属性的值设为-1，表示rehash操作已完成。
+### hash
+
+在redis中，哈希类型是指Redis键值对中的值本身又是一个键值对结构，形如`value=[{field1，value1}，...{fieldN，valueN}]`
+
+哈希类型的内部编码有两种：ziplist(压缩列表)、hashtable(哈希表)
+
+只有当存储的数据量比较小的情况下，Redis 才使用压缩列表来实现字典类型。具体需要满足两个条件：
+
+- 当哈希类型元素个数小于 hash-max-ziplist-entries配置（默认512个）
+- 所有值都小于hash-max-ziplist-value配置（默认64字节）  
+    `ziplist`使用更加紧凑的结构实现多个元素的连续存储，所以在节省内存方面比`hashtable`更加优秀。当哈希类型无法满足`ziplist`的条件时，Redis会使用`hashtable`作为哈希的内部实现，因为此时`ziplist`的读写效率会下降，而`hashtable`的读写时间复杂度为O（1）
+
+#### ziplist
+
+![Pasted image 20230918001351](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202310161701448.png)
+
+
+#### hashtable
+
+![Pasted image 20230918001408](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202310161701449.png)
+
+
+#### 命令
+
+|命令|说明|时间复杂度|
+|---|---|---|
+|HDEL key field \[field ...\]|删除一个或多个Hash的field|O(N) N是被删除的字段数量。|
+|HEXISTS key field|判断field是否存在于hash中|O(1)|
+|HGET key field|获取hash中field的值|O(1)|
+|HGETALL key|从hash中读取全部的域和值|O(N) N是Hash的长度|
+|HINCRBY key field increment|将hash中指定域的值增加给定的数字|O(1)|
+|HINCRBYFLOAT key field increment|将hash中指定域的值增加给定的浮点数|O(1)|
+|HKEYS key|获取hash的所有字段|O(N) N是Hash的长度|
+|HLEN key|获取hash里所有字段的数量|O(1)|
+|HMGET key field \[field ...\]|获取hash里面指定字段的值|O(N) N是请求的字段数|
+|HMSET key field value \[field value ...\]|设置hash字段值|O(N) N是设置的字段数|
+|HSET key field value|设置hash里面一个字段的值|O(1)|
+|HSETNX key field value|设置hash的一个字段，只有当这个字段不存在时有效|O(1)|
+|HSTRLEN key field|获取hash里面指定field的长度|O(1)|
+|HVALS key|获得hash的所有值|O(N) N是Hash的长度|
+|HSCAN key cursor \[MATCH pattern\] \[COUNT count\]|迭代hash里面的元素||
+
+### zset
+
+有序集合类型 (Sorted Set或ZSet) 相比于集合类型多了一个排序属性 score（分值），对于有序集合 ZSet 来说，每个存储元素相当于有两个值组成的，一个是有序结合的元素值，一个是排序值。
+
+有序集合保留了集合不能有重复成员的特性(分值可以重复)，但不同的是，有序集合中的元素可以排序。
+
+有序集合是由 ziplist (压缩列表)或 skiplist (跳跃表)组成的。
+
+当数据比较少时，有序集合使用的是 ziplist 存储的，有序集合使用 ziplist 格式存储必须满足以下两个条件：
+
+- 有序集合保存的元素个数要小于 128 个；
+- 有序集合保存的所有元素成员的长度都必须小于 64 字节。
+
+如果不能满足以上两个条件中的任意一个，有序集合将会使用 skiplist 结构进行存储。
+
+#### ziplist
+
+![Pasted image 20230918001418](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202310161701450.png)
+
+#### skiplist
+
+skiplist 编码的有序集合对象使用 zet 结构作为底层实现，一个 zset 结构同时包含一个字典和一个跳跃表：
+
+```c
+typedef struct zset{
+     zskiplist *zsl;  //跳跃表
+     dict *dice;  //字典
+} zset;
+```
+
+字典的键保存元素的值，字典的值则保存元素的分值；跳跃表节点的 object 属性保存元素的成员，跳跃表节点的 score 属性保存元素的分值。
+这两种数据结构会通过指针来共享相同元素的成员和分值，所以不会产生重复成员和分值，造成内存的浪费。
+
+说明：其实有序集合单独使用字典或跳跃表其中一种数据结构都可以实现，但是这里使用两种数据结构组合起来，原因是假如我们单独使用 字典，虽然能以 O(1) 的时间复杂度查找成员的分值，但是因为字典是以无序的方式来保存集合元素，所以每次进行范围操作的时候都要进行排序；假如我们单独使用跳跃表来实现，虽然能执行范围操作，但是查找操作有 O(1)的复杂度变为了O(logN)。因此Redis使用了两种数据结构来共同实现有序集合。
+
+跳跃表(skipList)是一种有序数据结构，他通过在每个节点中维持多个指向其他节点的指针，从而达到快速访问节点的目的。
+
+跳跃表支持评价O(logN)、最坏O(N)复杂度的节点查找，还可以通过顺序性操作来批量处理节点。
+![Pasted image 20230918001431](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202310161701451.png)
+最左边的结构为zskiplist结构 保存跳跃表节点的相关信息，比如节点数量，以及指向表头界定啊和表尾节点的指针等
+后面的是四个zskiplistNode结构包含层（每一层都有前进指针和跨度）、后退指针、分值和成员对象
+
+#### 命令
+
+|命令|说明|时间复杂度|
+|---|---|---|
+|BZPOPMAX key \[key ...] timeout|从一个或多个排序集中删除并返回得分最高的成员，或阻塞，直到其中一个可用为止|O(log(N))|
+|BZPOPMIN key \[key ...] timeout|从一个或多个排序集中删除并返回得分最低的成员，或阻塞，直到其中一个可用为止|O(log(N))|
+|ZADD key \[NXXX] \[CH] \[INCR] score member \[score member ...]|添加到有序set的一个或多个成员，或更新的分数，如果它已经存在|O(log(N))|
+|ZCARD key|获取一个排序的集合中的成员数量|O(1)|
+|ZCOUNT key min max|返回分数范围内的成员数量|O(log(N))|
+|ZINCRBY key increment member|增量的一名成员在排序设置的评分|O(log(N))|
+|ZINTERSTORE|相交多个排序集，导致排序的设置存储在一个新的关键|O(N_K)+O(M_log(M))|
+|ZLEXCOUNT key min max|返回成员之间的成员数量|O(log(N))|
+|ZPOPMAX key \[count]|删除并返回排序集中得分最高的成员|O(log(N)\*M)|
+|ZPOPMIN key \[count]|删除并返回排序集中得分最低的成员|O(log(N)\*M)|
+|ZRANGE key start stop \[WITHSCORES]|根据指定的index返回，返回sorted set的成员列表|O(log(N)+M)|
+|ZRANGEBYLEX key min max \[LIMIT offset count]|返回指定成员区间内的成员，按字典正序排列, 分数必须相同。|O(log(N)+M)|
+|ZREVRANGEBYLEX key max min \[LIMIT offset count]|返回指定成员区间内的成员，按字典倒序排列, 分数必须相同|O(log(N)+M)|
+|ZRANGEBYSCORE key min max \[WITHSCORES] \[LIMIT offset count]|返回有序集合中指定分数区间内的成员，分数由低到高排序。|O(log(N)+M)|
+|ZRANK key member|确定在排序集合成员的索引|O(log(N))|
+|ZREM key member \[member ...]|从排序的集合中删除一个或多个成员|O(M\*log(N))|
+|ZREMRANGEBYLEX key min max|删除名称按字典由低到高排序成员之间所有成员。|O(log(N)+M)|
+|ZREMRANGEBYRANK key start stop|在排序设置的所有成员在给定的索引中删除|O(log(N)+M)|
+|ZREMRANGEBYSCORE key min max|删除一个排序的设置在给定的分数所有成员|O(log(N)+M)|
+|ZREVRANGE key start stop \[WITHSCORES]|在排序的设置返回的成员范围，通过索引，下令从分数高到低|O(log(N)+M)|
+|ZREVRANGEBYSCORE key max min \[WITHSCORES] \[LIMIT offset count]|返回有序集合中指定分数区间内的成员，分数由高到低排序。|O(log(N)+M)|
+|ZREVRANK key member|确定指数在排序集的成员，下令从分数高到低|O(log(N))|
+|ZSCORE key member|获取成员在排序设置相关的比分|O(1)|
+|ZUNIONSTORE|添加多个排序集和导致排序的设置存储在一个新的关键|O(N)+O(M log(M))|
+|ZSCAN key cursor \[MATCH pattern] \[COUNT count]|迭代sorted sets里面的元素|O(1)|
