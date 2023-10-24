@@ -421,6 +421,8 @@ MySQL前缀索引是一种索引技术，它允许在索引列上只使用列值
 
 更新语句执行会复杂一点。需要检查表是否有排它锁，写 binlog，刷盘，是否执行 commit。
 
+![img](https://raw.githubusercontent.com/ByteByteGoHq/system-design-101/main/images/sql-execution-order.jpg)
+
 ## MVCC
 
 一句话总结： ==MVCC是mysql基于自己的回滚机制为并发场景下的读操作做的读取的优化。==
