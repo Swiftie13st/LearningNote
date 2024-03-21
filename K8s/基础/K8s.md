@@ -112,7 +112,8 @@ kubernetes的本质是一组服务器集群，它可以在集群的每个节点�
 
 提供一次性任务，定时任务；满足批量数据处理和分析的场景
 
-## K8s集群架构
+
+## K8s集群架构、组件
 
 ![](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202305262142679.png)
 
@@ -122,13 +123,82 @@ kubernetes的本质是一组服务器集群，它可以在集群的每个节点�
 `kube-controller` 集群控制器  
 `cloud-controller` 与云服务商交互
 
-### master
+![](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202403211135284.png)
+
+![](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202403211500814.png)
+
+### Master
 
 主节点，控制平台，不需要很高性能，不跑任务，通常一个就行了，也可以开多个主节点来提高集群可用度。
 
-### worker
+
+#### kube-apiserver
+
+API 服务器是 Kubernetes [控制平面](https://kubernetes.io/zh-cn/docs/reference/glossary/?all=true#term-control-plane)的组件， 该组件负责公开了 Kubernetes API，负责处理接受请求的工作。 API 服务器是 Kubernetes 控制平面的前端。  
+  
+Kubernetes API 服务器的主要实现是 [kube-apiserver](https://kubernetes.io/zh-cn/docs/reference/command-line-tools-reference/kube-apiserver/)。 kube-apiserver 设计上考虑了水平扩缩，也就是说，它可通过部署多个实例来进行扩缩。 你可以运行 kube-apiserver 的多个实例，并在这些实例之间平衡流量。
+
+#### kube-controller-manager
+
+[kube-controller-manager](https://kubernetes.io/zh-cn/docs/reference/command-line-tools-reference/kube-controller-manager/) 是[控制平面](https://kubernetes.io/zh-cn/docs/reference/glossary/?all=true#term-control-plane)的组件， 负责运行[控制器](https://kubernetes.io/zh-cn/docs/concepts/architecture/controller/)进程。  
+  
+从逻辑上讲， 每个[控制器](https://kubernetes.io/zh-cn/docs/concepts/architecture/controller/)都是一个单独的进程， 但是为了降低复杂性，它们都被编译到同一个可执行文件，并在同一个进程中运行。  
+
+这些控制器包括：
+
+- 节点控制器（Node Controller）：负责在节点出现故障时进行通知和响应
+- 任务控制器（Job Controller）：监测代表一次性任务的 Job 对象，然后创建 Pods 来运行这些任务直至完成
+- 端点分片控制器（EndpointSlice controller）：填充端点分片（EndpointSlice）对象（以提供 Service 和 Pod 之间的链接）。
+- 服务账号控制器（ServiceAccount controller）：为新的命名空间创建默认的服务账号（ServiceAccount）。
+
+#### cloud-controller-manager
+
+嵌入了特定于云平台的控制逻辑。 云控制器管理器（Cloud Controller Manager）允许你将你的集群连接到云提供商的 API 之上， 并将与该云平台交互的组件同与你的集群交互的组件分离开来。  
+  
+cloud-controller-manager 仅运行特定于云平台的控制器。 因此如果你在自己的环境中运行 Kubernetes，或者在本地计算机中运行学习环境， 所部署的集群不需要有云控制器管理器。  
+
+与 kube-controller-manager 类似，cloud-controller-manager 将若干逻辑上独立的控制回路组合到同一个可执行文件中， 供你以同一进程的方式运行。 你可以对其执行水平扩容（运行不止一个副本）以提升性能或者增强容错能力。
+
+#### kube-scheduler
+
+scheduler 负责资源的调度，按照预定的调度策略将 Pod 调度到相应的机器上；
+
+#### etcd
+
+[etcd文档](https://etcd.io/docs/)
+
+一致且高度可用的键值存储，用作 Kubernetes 的所有集群数据的后台数据库。  
+
+如果你的 Kubernetes 集群使用 etcd 作为其后台数据库， 请确保你针对这些数据有一份 [备份](https://kubernetes.io/zh-cn/docs/tasks/administer-cluster/configure-upgrade-etcd/#backing-up-an-etcd-cluster)计划。  
+早期数据存放在内存，现在已经是持久化存储的了。
+
+### worker / Node
 
 工作节点，可以是虚拟机或物理计算机，任务都在这里跑，机器性能需要好点；通常都有很多个，可以不断加机器扩大集群；每个工作节点由主节点管理
+
+#### kubelet
+
+kubelet 负责维护容器的生命周期，同时也负责 Volume（CVI）和网络（CNI）的管理；
+
+#### kube-proxy
+
+kube-proxy 负责为 Service 提供 cluster 内部的服务发现和负载均衡；
+
+#### container runtime
+
+Container runtime 负责镜像管理以及 Pod 和容器的真正运行（CRI）；
+
+Kubernetes 支持许多容器运行环境，例如 [containerd](https://containerd.io/docs/)、 [CRI-O](https://cri-o.io/#what-is-cri-o) 以及 [Kubernetes CRI (容器运行环境接口)](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-node/container-runtime-interface.md) 的其他任何实现。
+
+### 附加组件
+
+- `kube-dns` 负责为整个集群提供 DNS 服务
+- `Ingress Controller` 为服务提供外网入口
+- `Prometheus` 提供资源监控
+- `Dashboard` 提供 GUI
+- `Federation` 提供跨可用区的集群
+- `Fluentd-elasticsearch` 提供集群日志采集、存储与查询
+
 
 ### Pod
 
@@ -155,6 +225,19 @@ kubernetes的本质是一组服务器集群，它可以在集群的每个节点�
 - 在node节点，会通过 `kubelet -- apiserver ` 读取etcd 拿到分配在当前node节点上的pod，然后通过docker创建容器
 
 ![](https://raw.githubusercontent.com/Swiftie13st/Figurebed/main/img/202305262206956.png)
+
+
+### 组件调用关系
+
+以部署一个Nginx服务来说明Kubernetes各个组件的调用关系
+
+1. 首先，K8s环境启动后，master和node都会将自身的信息存储到etcd数据库中
+2. 一个Nginx服务的安装请求会首先发送到master节点的apiServer组件
+3. apiServer组件会调用scheduler组件来决定应该把这个服务安装到哪个node节点上。它会从etcd中读取各个node的信息，按一定的算法进行选择，并将选择结果告知apiServer
+4. apiServer调用controller-manger去调度相应node节点来安装Nginx服务
+5. kuberlet接收到指令后，会通知docker/container，然后由docker/container来启动一个Nginx的pod
+6. 至此一个Nginx服务就运行成功了。访问该服务时，需通过kube-proxy来对pod产生访问的代理
+
 
 ## k8s的组件有哪些，作用分别是什么？
 
