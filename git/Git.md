@@ -74,3 +74,13 @@
 `git stash drop`：删除栈顶存储的修改
 `git stash pop`：将栈顶存储的修改恢复到当前分支，同时删除栈顶元素
 `git stash list`：查看栈中所有元素
+
+## 修改已经commit的作者信息
+
+1. `git log` 查看目前所有commit id
+2. `git rebase -i <最早commit>` 重新设置基准线，选择想要修改部分的上一个commit的commit id，如果是从头修改则为`git rebase -i --root`
+3. 将想要修改的部分从`pick`改为`edit`
+4. `git commit --amend --author="Author Name <email@address.com>"` 修改commit作者信息
+5. `git rebase --continue` 移动到下个commit进行修改，重复4直到完成。
+6. `git rebase --continue` 修改完成。
+
